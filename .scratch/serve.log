@@ -1,0 +1,5 @@
+SERVING: http://127.0.0.1:8551
+[2026-09-18 17:52:08] INFO: Fetched (200) <GET https://api-takumi-static.mihoyo.com/common/blackboard/zzz_wiki/v1/home/content/list?app_sn=zzz_wiki&channel_id=43> (referer: https://www.google.com/)
+[2026-09-18 17:52:24] INFO: Fetched (200) <GET https://act-api-takumi-static.mihoyo.com/hoyowiki/zzz/wapi/entry_page?app_sn=zzz_wiki&entry_page_id=2145&lang=zh-cn> (referer: https://baike.mihoyo.com/)
+[2026-09-18 17:53:25] INFO: Fetched (200) <GET https://api-takumi-static.mihoyo.com/common/blackboard/zzz_wiki/v1/home/content/list?app_sn=zzz_wiki&channel_id=43> (referer: https://www.google.com/)
+[2026-09-18 17:53:40] INFO: Fetched (200) <GET https://act-api-takumi-static.mihoyo.com/hoyowiki/zzz/wapi/entry_page?app_sn=zzz_wiki&entry_page_id=2145&lang=zh-cn> (referer: https://baike.mihoyo.com/)

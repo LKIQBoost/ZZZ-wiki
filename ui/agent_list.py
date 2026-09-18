@@ -137,10 +137,26 @@ class AgentListView:
     def _card(self, character: Character) -> ft.Control:
         top_left: list[ft.Control] = []
         if character.rarity:
-            top_left.append(t.badge(character.rarity, t.RARITY_COLORS.get(character.rarity, t.ACCENT)))
+            top_left.append(
+                t.icon_badge(
+                    t.RARITY_ICONS.get(character.rarity),
+                    size=24,
+                    fallback=t.badge(
+                        character.rarity,
+                        t.RARITY_COLORS.get(character.rarity, t.ACCENT),
+                    ),
+                )
+            )
         if character.element:
             top_left.append(
-                t.badge(character.element, t.ELEMENT_COLORS.get(character.element, t.TEXT_DIM))
+                t.icon_badge(
+                    t.element_src(character.element),
+                    size=24,
+                    fallback=t.badge(
+                        character.element,
+                        t.ELEMENT_COLORS.get(character.element, t.TEXT_DIM),
+                    ),
+                )
             )
 
         layers: list[ft.Control] = []

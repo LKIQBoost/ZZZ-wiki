@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import flet as ft
 
-from detail import CharacterDetail
+from detail import CharacterDetail, Media, SkillGroup
 
 from . import theme as t
 
@@ -82,29 +82,59 @@ class AgentDetailView:
         sections: list[ft.Control] = [self._hero(detail)]
 
         if detail.tags or detail.intro:
-            body: list[ft.Control] = []
+            intro: list[ft.Control] = []
             if detail.tags:
-                body.append(ft.Row([t.chip(x) for x in detail.tags], wrap=True, spacing=8))
+                intro.append(ft.Row([t.chip(x) for x in detail.tags], wrap=True, spacing=8))
             if detail.intro:
-                body.append(t.body_text(detail.intro))
-            sections.append(t.section("角色介绍", *body))
+                intro.append(t.body_text(detail.intro))
+            sections.append(t.section("角色介绍", *intro))
 
         if detail.cv:
-            rows = [
-                ft.Row(
-                    [
-                        ft.Text(label, size=13, color=t.TEXT_DIM, width=60),
-                        ft.Text(detail.cv[label], size=13, color=t.TEXT, selectable=True),
+            sections.append(
+                t.section(
+                    "角色CV",
+                    *[
+                        ft.Row(
+                            [
+                                ft.Text(label, size=13, color=t.TEXT_DIM, width=60),
+                                ft.Text(
+                                    detail.cv[label], size=13, color=t.TEXT, selectable=True
+                                ),
+                            ],
+                            spacing=12,
+                        )
+                        for label in CV_ORDER
+                        if label in detail.cv
                     ],
-                    spacing=12,
                 )
-                for label in CV_ORDER
-                if label in detail.cv
-            ]
-            sections.append(t.section("角色CV", *rows))
+            )
 
         if detail.skills:
-            sections.append(t.section("技能展示", *self._skills(detail)))
+            sections.append(
+                t.section(
+                    "技能展示",
+                    *[
+                        block
+                        for group in detail.skills
+                        for block in self._skill_group(group)
+                    ],
+                )
+            )
+
+        if detail.cinema or detail.cinema_levels:
+            blocks: list[ft.Control] = []
+            if detail.cinema:
+                blocks.append(self._gallery(detail.cinema, width=300, height=170))
+            blocks.extend(self._cinema_levels(detail))
+            sections.append(t.section("意象影画", *blocks))
+
+        if detail.showcase:
+            sections.append(
+                t.section(
+                    "角色展示",
+                    self._gallery(detail.showcase, width=260, height=150),
+                )
+            )
 
         for title, text in (
             ("角色印象", detail.impression),
@@ -113,6 +143,27 @@ class AgentDetailView:
         ):
             if text:
                 sections.append(t.section(title, t.body_text(text)))
+
+        if detail.gallery:
+            sections.append(
+                t.section(
+                    "媒体物料",
+                    self._gallery(detail.gallery, width=260, height=150),
+                )
+            )
+
+        if detail.strategies:
+            sections.append(
+                t.section(
+                    "攻略推荐",
+                    ft.Row(
+                        [self._strategy(s) for s in detail.strategies],
+                        wrap=True,
+                        spacing=12,
+                        run_spacing=12,
+                    ),
+                )
+            )
 
         if detail.source_url:
             sections.append(
@@ -126,16 +177,35 @@ class AgentDetailView:
 
         self._set(ft.Column(sections, spacing=14))
 
+    # ---- 头图 ----
+
     def _hero(self, detail: CharacterDetail) -> ft.Control:
         heading: list[ft.Control] = [
-            ft.Text(detail.name, size=34, weight=ft.FontWeight.BOLD, color=t.TEXT),
+            ft.Row(
+                [
+                    ft.Text(
+                        detail.name,
+                        size=36,
+                        weight=ft.FontWeight.BOLD,
+                        color=t.TEXT,
+                    ),
+                    t.icon_badge(detail.faction_icon, size=52),
+                ],
+                spacing=16,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
         ]
+
         subtitle = detail.subtitle or detail.faction
         if subtitle:
-            heading.append(ft.Text(subtitle, size=20, weight=ft.FontWeight.BOLD, color=t.ACCENT))
+            heading.append(
+                ft.Text(subtitle, size=20, weight=ft.FontWeight.BOLD, color=t.ACCENT)
+            )
+        if detail.romanized:
+            heading.append(ft.Text(detail.romanized, size=12, color=t.TEXT_DIM))
 
         pills = ft.Container(
-            width=440,
+            width=460,
             content=ft.Column(
                 [
                     ft.Row(
@@ -183,24 +253,33 @@ class AgentDetailView:
                 ft.Container(
                     right=0,
                     bottom=0,
-                    content=t.badge(
-                        detail.rarity,
-                        t.RARITY_COLORS.get(detail.rarity, t.ACCENT),
-                        size=18,
+                    content=t.icon_badge(
+                        t.RARITY_ICONS.get(detail.rarity),
+                        size=44,
+                        fallback=t.badge(
+                            detail.rarity,
+                            t.RARITY_COLORS.get(detail.rarity, t.ACCENT),
+                            size=18,
+                        ),
                     ),
                 )
             )
 
         portrait = ft.Container(
-            width=280,
-            height=280,
+            width=320,
+            height=320,
             content=ft.Stack(portrait_layers, expand=True),
         )
 
         return ft.Container(
-            bgcolor=t.CARD,
             border_radius=8,
             padding=20,
+            # 官网头图是角色主题色铺的，这里用同色系的渐变做背景
+            gradient=ft.LinearGradient(
+                colors=[t.blend(detail.accent), t.blend(detail.accent, ratio=0.06)],
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+            ),
             content=ft.Row(
                 [left, portrait],
                 spacing=20,
@@ -208,35 +287,157 @@ class AgentDetailView:
             ),
         )
 
-    def _skills(self, detail: CharacterDetail) -> list[ft.Control]:
-        blocks: list[ft.Control] = []
-        for group in detail.skills:
-            blocks.append(
-                ft.Text(
-                    group.name,
-                    size=14,
-                    weight=ft.FontWeight.BOLD,
-                    color=t.ACCENT,
-                )
+    # ---- 各分节 ----
+
+    def _skill_group(self, group: SkillGroup) -> list[ft.Control]:
+        head: list[ft.Control] = []
+        if group.icon:
+            head.append(
+                ft.Image(src=group.icon, width=30, height=30, fit=ft.BoxFit.CONTAIN)
             )
-            for skill in group.skills:
-                blocks.append(
-                    ft.Container(
-                        bgcolor=t.CARD_HI,
-                        border_radius=6,
-                        padding=12,
-                        content=ft.Column(
-                            [
-                                ft.Text(skill.name, size=13, weight=ft.FontWeight.BOLD, color=t.TEXT),
-                                ft.Text(
-                                    skill.desc,
-                                    size=12,
-                                    color=t.TEXT_DIM,
-                                    selectable=True,
-                                ),
-                            ],
-                            spacing=5,
-                        ),
+        head.append(
+            ft.Text(group.name, size=14, weight=ft.FontWeight.BOLD, color=t.ACCENT)
+        )
+
+        blocks: list[ft.Control] = [
+            ft.Row(head, spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        ]
+
+        for skill in group.skills:
+            row: list[ft.Control] = []
+            if skill.icon:
+                # 招式演示是动图，Flutter 的 Image 会直接播
+                row.append(
+                    ft.Image(
+                        src=skill.icon,
+                        width=120,
+                        height=68,
+                        fit=ft.BoxFit.COVER,
+                        border_radius=4,
                     )
                 )
+            row.append(
+                ft.Column(
+                    [
+                        ft.Text(
+                            skill.name,
+                            size=13,
+                            weight=ft.FontWeight.BOLD,
+                            color=t.TEXT,
+                        ),
+                        ft.Text(
+                            skill.desc,
+                            size=12,
+                            color=t.TEXT_DIM,
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=5,
+                    expand=True,
+                )
+            )
+            blocks.append(
+                ft.Container(
+                    bgcolor=t.CARD_HI,
+                    border_radius=6,
+                    padding=12,
+                    content=ft.Row(
+                        row,
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
+                )
+            )
         return blocks
+
+    def _gallery(
+        self, items: list[Media], *, width: int, height: int
+    ) -> ft.Control:
+        """图集：固定尺寸的图片 + 页签名。"""
+        return ft.Row(
+            [
+                ft.Column(
+                    [
+                        ft.Container(
+                            width=width,
+                            height=height,
+                            border_radius=6,
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            bgcolor=t.CARD_HI,
+                            content=ft.Image(
+                                src=item.image,
+                                fit=ft.BoxFit.COVER,
+                                expand=True,
+                            ),
+                        ),
+                        ft.Text(
+                            item.name,
+                            size=12,
+                            color=t.TEXT_DIM,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            width=width,
+                        ),
+                    ],
+                    spacing=6,
+                    tight=True,
+                )
+                for item in items
+                if item.image
+            ],
+            wrap=True,
+            spacing=12,
+            run_spacing=12,
+        )
+
+    def _cinema_levels(self, detail: CharacterDetail) -> list[ft.Control]:
+        blocks: list[ft.Control] = []
+        for level in detail.cinema_levels:
+            head: list[ft.Control] = [
+                ft.Text(level.level, size=12, weight=ft.FontWeight.BOLD, color=t.ACCENT)
+            ]
+            if level.name:
+                head.append(ft.Text(level.name, size=13, color=t.TEXT))
+            blocks.append(
+                ft.Container(
+                    bgcolor=t.CARD_HI,
+                    border_radius=6,
+                    padding=12,
+                    content=ft.Column(
+                        [
+                            ft.Row(head, spacing=10),
+                            *(
+                                [t.body_text(level.effect)]
+                                if level.effect
+                                else []
+                            ),
+                        ],
+                        spacing=6,
+                    ),
+                )
+            )
+        return blocks
+
+    def _strategy(self, strategy) -> ft.Control:
+        cover: list[ft.Control] = []
+        if strategy.cover:
+            cover.append(
+                ft.Container(
+                    width=200,
+                    height=100,
+                    border_radius=6,
+                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    content=ft.Image(src=strategy.cover, fit=ft.BoxFit.COVER, expand=True),
+                )
+            )
+        cover.append(
+            ft.Text(
+                strategy.name,
+                size=12,
+                color=t.TEXT,
+                width=200,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            )
+        )
+        return ft.Column(cover, spacing=6, tight=True)

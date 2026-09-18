@@ -72,9 +72,36 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 
 @dataclass
+class Media:
+    """一张展示图，带官网上的页签名（如「影画展示1」「待机动画」）。"""
+
+    name: str
+    image: str
+
+
+@dataclass
+class CinemaLevel:
+    """意象影画里的一档（LEVEL1 ~ LEVEL6）。"""
+
+    level: str
+    name: str
+    effect: str
+
+
+@dataclass
+class Strategy:
+    """配队/攻略推荐，链到别的词条。"""
+
+    name: str
+    cover: str
+    link: str
+
+
+@dataclass
 class Skill:
     name: str
     desc: str
+    icon: str | None = None  # 招式演示动图（gif）
 
 
 @dataclass
@@ -82,6 +109,7 @@ class SkillGroup:
     """一组技能，如「普攻」「特殊技」。"""
 
     name: str
+    icon: str | None = None  # 组图标
     skills: list[Skill] = field(default_factory=list)
 
 
@@ -99,13 +127,21 @@ class CharacterDetail:
     height: str | None = None
     romanized: str | None = None  # 立绘上的罗马音，如 ANTON IVANOV
     portrait: str | None = None  # 立绘
+    portrait_mobile: str | None = None
+    faction_icon: str | None = None  # 阵营徽章，显示在名字旁边
+    accent: str | None = None  # bg_rolling_color，官网头图的主题色
     tags: list[str] = field(default_factory=list)  # 【角色TAG】
     intro: str = ""  # 【角色详情】
     cv: dict[str, str] = field(default_factory=dict)  # 中配/日配/英配/韩配
     impression: str = ""  # 角色印象
     story: str = ""  # 角色故事
     store_message: str = ""  # 录像店经营留言信息
-    skills: list[SkillGroup] = field(default_factory=list)
+    skills: list[SkillGroup] = field(default_factory=list)  # 技能展示
+    cinema: list[Media] = field(default_factory=list)  # 意象影画·展示图
+    cinema_levels: list[CinemaLevel] = field(default_factory=list)  # 意象影画·等级效果
+    showcase: list[Media] = field(default_factory=list)  # 角色展示
+    gallery: list[Media] = field(default_factory=list)  # 媒体物料
+    strategies: list[Strategy] = field(default_factory=list)  # 攻略推荐
     source_url: str = ""
 
     def __str__(self) -> str:
@@ -127,9 +163,32 @@ def html_to_lines(raw: str) -> list[str]:
     return [line.strip() for line in html_to_text(raw).splitlines() if line.strip()]
 
 
+def _section_map(page: dict) -> dict[str, str]:
+    """template_layout 把 module id 映射到官网右侧导航的分节名。
+
+    分组形如 {"name": "意象影画", "module": [{"id": "279"}, ...]}。
+    """
+    mapping: dict[str, str] = {}
+    for tab in (page.get("template_layout") or {}).get("tab") or []:
+        for group in tab.get("module_group") or []:
+            name = (group.get("name") or "").strip()
+            for module in group.get("module") or []:
+                if module.get("id"):
+                    mapping[str(module["id"])] = name
+    return mapping
+
+
 def _iter_components(page: dict):
-    """遍历所有 module 里的 component，产出 (module 名, component_id, data)。"""
+    """产出 (分节名, component_id, data)。
+
+    分节名优先取 module 自己的 name（如「角色CV」「角色印象」这类具体标签），
+    没有就回退到 template_layout 的分组名（「技能展示」「意象影画」「角色展示」…）。
+    """
+    sections = _section_map(page)
     for module in page.get("modules") or []:
+        section = (module.get("name") or "").strip() or sections.get(
+            str(module.get("id")), ""
+        )
         for comp in module.get("components") or []:
             data = comp.get("data")
             if isinstance(data, str):
@@ -138,7 +197,7 @@ def _iter_components(page: dict):
                 except json.JSONDecodeError:
                     continue
             if isinstance(data, dict):
-                yield module.get("name") or "", comp.get("component_id"), data
+                yield section, comp.get("component_id"), data
 
 
 def _parse_intro(raw: str) -> tuple[list[str], str]:
@@ -185,6 +244,7 @@ def _parse_skills(data: dict) -> list[SkillGroup]:
             Skill(
                 name=(child.get("title") or "").strip(),
                 desc=html_to_text(child.get("desc") or ""),
+                icon=(child.get("animated_icon") or "").strip() or None,
             )
             for child in item.get("children") or []
             if (child.get("title") or "").strip()
@@ -193,8 +253,52 @@ def _parse_skills(data: dict) -> list[SkillGroup]:
         if not skills and (item.get("desc") or "").strip():
             skills = [Skill(name=name, desc=html_to_text(item["desc"]))]
 
-        groups.append(SkillGroup(name=name, skills=skills))
+        groups.append(
+            SkillGroup(
+                name=name,
+                icon=(item.get("icon") or "").strip() or None,
+                skills=skills,
+            )
+        )
     return groups
+
+
+def _parse_media(data: dict) -> list[Media]:
+    """map_desc：官网上的图集页签。"""
+    return [
+        Media(name=(item.get("tab_name") or "").strip(), image=item.get("image") or "")
+        for item in data.get("list") or []
+        if item.get("image")
+    ]
+
+
+def _parse_cinema_levels(data: dict) -> list[CinemaLevel]:
+    """double_col_table：意象影画的等级效果表。"""
+    levels: list[CinemaLevel] = []
+    for table in data.get("tables") or []:
+        for row in table.get("row") or []:
+            if not row:
+                continue
+            first = html_to_text(str(row[0])).splitlines()
+            levels.append(
+                CinemaLevel(
+                    level=first[0].strip() if first else "",
+                    name=first[1].strip() if len(first) > 1 else "",
+                    effect=html_to_text(str(row[1])) if len(row) > 1 else "",
+                )
+            )
+    return levels
+
+
+def _parse_strategies(data: dict) -> list[Strategy]:
+    return [
+        Strategy(
+            name=(item.get("tab_name") or "").strip(),
+            cover=item.get("cover") or "",
+            link=item.get("link") or "",
+        )
+        for item in data.get("list") or []
+    ]
 
 
 def parse_detail(payload: dict) -> CharacterDetail:
@@ -208,7 +312,7 @@ def parse_detail(payload: dict) -> CharacterDetail:
         source_url=DETAIL_URL.format(content_id=page["id"]),
     )
 
-    for module_name, component_id, data in _iter_components(page):
+    for section, component_id, data in _iter_components(page):
         if component_id == "role_base_info":
             detail.rarity = data.get("grade") or detail.rarity
             detail.element = ELEMENTS.get(data.get("role_attribute"), detail.element)
@@ -216,6 +320,9 @@ def parse_detail(payload: dict) -> CharacterDetail:
             detail.subtitle = (data.get("addition_text") or "").strip() or detail.subtitle
             detail.romanized = (data.get("bg_rolling_text") or "").strip() or detail.romanized
             detail.portrait = data.get("tachie_pc") or detail.portrait
+            detail.portrait_mobile = data.get("tachie_m") or detail.portrait_mobile
+            detail.faction_icon = data.get("role_faction") or detail.faction_icon
+            detail.accent = data.get("bg_rolling_color") or detail.accent
             for entry in data.get("custom_field") or []:
                 key, value = entry.get("key"), (entry.get("value") or "").strip()
                 if key == "出生日期":
@@ -228,17 +335,34 @@ def parse_detail(payload: dict) -> CharacterDetail:
 
         elif component_id == "collapse_panel":
             text = html_to_text(data.get("rich_text") or "")
-            if module_name == "角色印象":
-                detail.impression = text
-            elif module_name == "角色故事":
-                detail.story = text
-            elif module_name == "录像店经营留言信息":
-                detail.store_message = text
-            elif "CV" in module_name:
+            if "CV" in section:
                 detail.cv = _parse_cv(data.get("rich_text") or "")
+            elif section == "角色印象":
+                detail.impression = text
+            elif section == "角色故事":
+                detail.story = text
+            elif "录像店" in section:
+                detail.store_message = text
 
         elif component_id == "role_talent":
-            detail.skills.extend(_parse_skills(data))
+            # 「晋升需求」那一组是养成材料，不属于技能展示
+            if section != "晋升需求":
+                detail.skills.extend(_parse_skills(data))
+
+        elif component_id == "map_desc":
+            media = _parse_media(data)
+            if section == "意象影画":
+                detail.cinema.extend(media)
+            elif section == "媒体物料":
+                detail.gallery.extend(media)
+            else:
+                detail.showcase.extend(media)
+
+        elif component_id == "double_col_table":
+            detail.cinema_levels.extend(_parse_cinema_levels(data))
+
+        elif component_id == "strategy":
+            detail.strategies.extend(_parse_strategies(data))
 
     return detail
 
